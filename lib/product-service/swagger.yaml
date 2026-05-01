@@ -25,6 +25,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductsListResponse"
+    post:
+      summary: Create product
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateProductResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /products/{productId}:
     get:
       summary: Get product by id
@@ -60,10 +82,20 @@ components:
         description:
           type: string
         price:
-          type: number
+          type: integer
       required:
+        - id
         - title
         - price
+    ProductWithStock:
+      allOf:
+        - $ref: "#/components/schemas/Product"
+        - type: object
+          properties:
+            count:
+              type: integer
+          required:
+            - count
     ProductsListResponse:
       type: object
       properties:
@@ -72,7 +104,7 @@ components:
         data:
           type: array
           items:
-            $ref: "#/components/schemas/Product"
+            $ref: "#/components/schemas/ProductWithStock"
         count:
           type: integer
       required:
@@ -80,6 +112,28 @@ components:
         - data
         - count
     ProductResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/ProductWithStock"
+      required:
+        - success
+        - data
+    CreateProductRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: integer
+      required:
+        - title
+        - price
+    CreateProductResponse:
       type: object
       properties:
         success:
