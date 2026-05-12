@@ -3,6 +3,7 @@ import * as cdk from "aws-cdk-lib/core";
 import { Task3Stack } from "../lib/task-3-stack";
 import { HelloLambdaStack } from "../lib/hello-lambda/hello-lambda-stack";
 import { ProductServiceStack } from "../lib/product-service/product-service-stack";
+import { TodoStack } from "../lib/todo/todo-stack";
 
 const app = new cdk.App();
 new Task3Stack(app, "Task3Stack", {
@@ -20,3 +21,4 @@ new Task3Stack(app, "Task3Stack", {
 
 new HelloLambdaStack(app, "HelloLambdaStack", {});
 new ProductServiceStack(app, "ProductServiceStack", {});
+new TodoStack(app, "TodoStack", {});
