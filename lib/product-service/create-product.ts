@@ -6,7 +6,7 @@ import {
 } from "aws-lambda";
 import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 
-type CreateProductRequest = {
+export type CreateProductRequest = {
   title?: string;
   description?: string;
   price?: number;
@@ -62,6 +62,41 @@ const badRequest = (message: string): APIGatewayProxyResult => ({
   },
 });
 
+export const createProductRecord = async (payload: CreateProductRequest) => {
+  const title = payload.title?.trim();
+  const description = payload.description?.trim() ?? "";
+  const price = payload.price;
+
+  if (!title) {
+    throw new Error("Title is required");
+  }
+
+  if (!Number.isInteger(price)) {
+    throw new Error("Price must be an integer");
+  }
+
+  const product = {
+    id: randomUUID(),
+    title,
+    description,
+    price,
+  };
+
+  await dynamoDB.send(
+    new PutItemCommand({
+      TableName: getProductsTableName(),
+      Item: {
+        id: { S: product.id },
+        title: { S: product.title },
+        description: { S: product.description },
+        price: { N: String(product.price) },
+      },
+    })
+  );
+
+  return product;
+};
+
 export const createProduct: Handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
@@ -72,36 +107,7 @@ export const createProduct: Handler = async (
       return badRequest("Request body is required");
     }
 
-    const title = payload.title?.trim();
-    const description = payload.description?.trim() ?? "";
-    const price = payload.price;
-
-    if (!title) {
-      return badRequest("Title is required");
-    }
-
-    if (!Number.isInteger(price)) {
-      return badRequest("Price must be an integer");
-    }
-
-    const product = {
-      id: randomUUID(),
-      title,
-      description,
-      price,
-    };
-
-    await dynamoDB.send(
-      new PutItemCommand({
-        TableName: getProductsTableName(),
-        Item: {
-          id: { S: product.id },
-          title: { S: product.title },
-          description: { S: product.description },
-          price: { N: String(product.price) },
-        },
-      })
-    );
+    const product = await createProductRecord(payload);
 
     return {
       statusCode: 201,
@@ -115,6 +121,14 @@ export const createProduct: Handler = async (
       },
     };
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "Title is required" ||
+        error.message === "Price must be an integer")
+    ) {
+      return badRequest(error.message);
+    }
+
     console.error("Failed to create product", error);
 
     return {

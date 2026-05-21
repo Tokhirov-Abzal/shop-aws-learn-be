@@ -22,7 +22,9 @@ const app = new cdk.App();
 // });
 
 // new HelloLambdaStack(app, "HelloLambdaStack", {});
-// new ProductServiceStack(app, "ProductServiceStack", {});
+const productServiceStack = new ProductServiceStack(app, "ProductServiceStack", {});
 // new TodoStack(app, "TodoStack", {});
-new ImportServiceStack(app, "ImportServiceStack", {});
+new ImportServiceStack(app, "ImportServiceStack", {
+	catalogItemsQueue: productServiceStack.catalogItemsQueue,
+});
 new HelloS3Stack(app, "S3Stack", {});
