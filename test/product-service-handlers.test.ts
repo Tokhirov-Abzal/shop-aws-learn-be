@@ -1,4 +1,5 @@
 const mockSend = jest.fn();
+const mockSnsSend = jest.fn();
 
 jest.mock("node:crypto", () => ({
   randomUUID: jest.fn(() => "7a9c2f31-7cf9-4df5-8d23-0fdd0f21e001"),
@@ -19,7 +20,17 @@ jest.mock("@aws-sdk/client-dynamodb", () => ({
   })),
 }));
 
+jest.mock("@aws-sdk/client-sns", () => ({
+  SNSClient: jest.fn().mockImplementation(() => ({
+    send: mockSnsSend,
+  })),
+  PublishCommand: jest.fn().mockImplementation((input: unknown) => ({
+    input,
+  })),
+}));
+
 import { createProduct } from "../lib/product-service/create-product";
+import { catalogBatchProcess } from "../lib/product-service/catalog-batch-process";
 import { getProductsList } from "../lib/product-service/get-products-list";
 import { getProductsById } from "../lib/product-service/get-products-by-id";
 import { products, stocks } from "../lib/product-service/products";
@@ -27,13 +38,17 @@ import { products, stocks } from "../lib/product-service/products";
 describe("Product Service handlers", () => {
   beforeEach(() => {
     mockSend.mockReset();
+    mockSnsSend.mockReset();
     process.env.PRODUCTS_TABLE_NAME = "products";
     process.env.STOCK_TABLE_NAME = "stock";
+    process.env.CREATE_PRODUCT_TOPIC_ARN =
+      "arn:aws:sns:us-east-1:123456789012:createProductTopic";
   });
 
   afterAll(() => {
     delete process.env.PRODUCTS_TABLE_NAME;
     delete process.env.STOCK_TABLE_NAME;
+    delete process.env.CREATE_PRODUCT_TOPIC_ARN;
   });
 
   test("getProductsList returns joined products and stock data", async () => {
@@ -248,5 +263,142 @@ describe("Product Service handlers", () => {
     expect(body.success).toBe(false);
     expect(body.message).toBe("Title is required");
     expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  test("catalogBatchProcess stores all valid SQS messages", async () => {
+    mockSend.mockResolvedValue({});
+    mockSnsSend.mockResolvedValue({});
+
+    const result = await catalogBatchProcess(
+      {
+        Records: [
+          {
+            messageId: "msg-1",
+            body: JSON.stringify({
+              title: "Batch Product 1",
+              description: "From queue",
+              price: 50,
+            }),
+          },
+          {
+            messageId: "msg-2",
+            body: JSON.stringify({
+              title: "Batch Product 2",
+              description: "From queue",
+              price: 75,
+            }),
+          },
+        ],
+      } as any,
+      {} as any,
+      () => undefined
+    );
+
+    expect(result).toEqual({ batchItemFailures: [] });
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(mockSnsSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          TopicArn: process.env.CREATE_PRODUCT_TOPIC_ARN,
+          Subject: "Products created",
+          Message: JSON.stringify({
+            count: 2,
+            products: [
+              {
+                id: "7a9c2f31-7cf9-4df5-8d23-0fdd0f21e001",
+                title: "Batch Product 1",
+                description: "From queue",
+                price: 50,
+              },
+              {
+                id: "7a9c2f31-7cf9-4df5-8d23-0fdd0f21e001",
+                title: "Batch Product 2",
+                description: "From queue",
+                price: 75,
+              },
+            ],
+          }),
+        },
+      })
+    );
+    expect(mockSend).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        input: expect.objectContaining({
+          TableName: "products",
+          Item: expect.objectContaining({
+            title: { S: "Batch Product 1" },
+            description: { S: "From queue" },
+            price: { N: "50" },
+          }),
+        }),
+      })
+    );
+    expect(mockSend).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        input: expect.objectContaining({
+          TableName: "products",
+          Item: expect.objectContaining({
+            title: { S: "Batch Product 2" },
+            description: { S: "From queue" },
+            price: { N: "75" },
+          }),
+        }),
+      })
+    );
+  });
+
+  test("catalogBatchProcess reports failed SQS messages", async () => {
+    mockSend.mockResolvedValueOnce({});
+    mockSnsSend.mockResolvedValue({});
+
+    const result = await catalogBatchProcess(
+      {
+        Records: [
+          {
+            messageId: "msg-1",
+            body: JSON.stringify({
+              title: "Batch Product 1",
+              description: "From queue",
+              price: 50,
+            }),
+          },
+          {
+            messageId: "msg-2",
+            body: JSON.stringify({
+              description: "Missing title",
+              price: 75,
+            }),
+          },
+        ],
+      } as any,
+      {} as any,
+      () => undefined
+    );
+
+    expect(result).toEqual({
+      batchItemFailures: [{ itemIdentifier: "msg-2" }],
+    });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSnsSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: {
+          TopicArn: process.env.CREATE_PRODUCT_TOPIC_ARN,
+          Subject: "Products created",
+          Message: JSON.stringify({
+            count: 1,
+            products: [
+              {
+                id: "7a9c2f31-7cf9-4df5-8d23-0fdd0f21e001",
+                title: "Batch Product 1",
+                description: "From queue",
+                price: 50,
+              },
+            ],
+          }),
+        },
+      })
+    );
   });
 });

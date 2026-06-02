@@ -1,9 +1,11 @@
 import { Readable } from "node:stream";
 import type { S3Event, S3Handler } from "aws-lambda";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import csvParser from "csv-parser";
 
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
+const sqsClient = new SQSClient({ region: process.env.AWS_REGION });
 
 const getReadableBody = (body: unknown): Readable => {
   if (body instanceof Readable) {
@@ -11,6 +13,18 @@ const getReadableBody = (body: unknown): Readable => {
   }
 
   throw new Error("S3 object body is not a readable stream");
+};
+
+const getCatalogItemsQueueUrl = (): string => {
+  const queueUrl = process.env.CATALOG_ITEMS_QUEUE_URL;
+
+  if (!queueUrl) {
+    throw new Error(
+      "Missing required environment variable: CATALOG_ITEMS_QUEUE_URL"
+    );
+  }
+
+  return queueUrl;
 };
 
 const parseCsvObject = async (bucketName: string, objectKey: string) => {
@@ -22,14 +36,26 @@ const parseCsvObject = async (bucketName: string, objectKey: string) => {
   );
 
   const bodyStream = getReadableBody(response.Body);
+  const queueUrl = getCatalogItemsQueueUrl();
 
   await new Promise<void>((resolve, reject) => {
+    const sendTasks: Promise<unknown>[] = [];
+
     bodyStream
       .pipe(csvParser())
       .on("data", (record) => {
-        console.log("Parsed CSV record", record);
+        sendTasks.push(
+          sqsClient.send(
+            new SendMessageCommand({
+              QueueUrl: queueUrl,
+              MessageBody: JSON.stringify(record),
+            })
+          )
+        );
       })
-      .on("end", resolve)
+      .on("end", () => {
+        Promise.all(sendTasks).then(() => resolve()).catch(reject);
+      })
       .on("error", reject);
   });
 };
