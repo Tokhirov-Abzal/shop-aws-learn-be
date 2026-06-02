@@ -4,6 +4,7 @@ import { Task3Stack } from "../lib/task-3-stack";
 import { HelloLambdaStack } from "../lib/hello-lambda/hello-lambda-stack";
 import { ProductServiceStack } from "../lib/product-service/product-service-stack";
 import { ImportServiceStack } from "../lib/import-service/import-service-stack";
+import { AuthorizationServiceStack } from "../lib/authorization-service/authorization-service-stack";
 import { TodoStack } from "../lib/todo/todo-stack";
 import { HelloS3Stack } from "../lib/hello-s3/hello-s3-stack";
 
@@ -22,9 +23,23 @@ const app = new cdk.App();
 // });
 
 // new HelloLambdaStack(app, "HelloLambdaStack", {});
-const productServiceStack = new ProductServiceStack(app, "ProductServiceStack", {});
+const productServiceStack = new ProductServiceStack(
+  app,
+  "ProductServiceStack",
+  {}
+);
+const authorizationServiceStack = new AuthorizationServiceStack(
+  app,
+  "AuthorizationServiceStack",
+  {}
+);
 // new TodoStack(app, "TodoStack", {});
-new ImportServiceStack(app, "ImportServiceStack", {
-	catalogItemsQueue: productServiceStack.catalogItemsQueue,
+const importServiceStack = new ImportServiceStack(app, "ImportServiceStack", {
+  catalogItemsQueue: productServiceStack.catalogItemsQueue,
+  authorizerLambdaArn: authorizationServiceStack.authorizerLambdaArn,
 });
+
+importServiceStack.addDependency(productServiceStack);
+importServiceStack.addDependency(authorizationServiceStack);
+
 new HelloS3Stack(app, "S3Stack", {});

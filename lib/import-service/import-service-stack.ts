@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
@@ -11,6 +12,7 @@ import { Construct } from "constructs";
 
 type ImportServiceStackProps = cdk.StackProps & {
   catalogItemsQueue: sqs.IQueue;
+  authorizerLambdaArn: string;
 };
 
 export class ImportServiceStack extends cdk.Stack {
@@ -92,17 +94,39 @@ export class ImportServiceStack extends cdk.Stack {
       description: "This API serves import service endpoints.",
     });
 
+    const authorizerLambdaReference = lambda.Function.fromFunctionAttributes(
+      this,
+      "ImportedBasicAuthorizer",
+      {
+        functionArn: props.authorizerLambdaArn,
+        skipPermissions: true,
+      }
+    );
+
+    const basicAuthorizer = new apigateway.TokenAuthorizer(
+      this,
+      "ImportBasicAuthorizer",
+      {
+        handler: authorizerLambdaReference,
+        identitySource: apigateway.IdentitySource.header("Authorization"),
+        resultsCacheTtl: cdk.Duration.seconds(0),
+      }
+    );
+
     const importProductsFileIntegration = new apigateway.LambdaIntegration(
       importProductsFileFunction
     );
 
     const importResource = api.root.addResource("import");
-    importResource.addMethod("GET", importProductsFileIntegration);
+    importResource.addMethod("GET", importProductsFileIntegration, {
+      authorizer: basicAuthorizer,
+      authorizationType: apigateway.AuthorizationType.CUSTOM,
+    });
 
     importResource.addCorsPreflight({
       allowOrigins: apigateway.Cors.ALL_ORIGINS,
       allowMethods: ["GET"],
-      allowHeaders: ["Content-Type"],
+      allowHeaders: ["Content-Type", "Authorization"],
     });
 
     new cdk.CfnOutput(this, "ImportBucketName", {
